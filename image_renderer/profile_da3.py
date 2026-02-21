@@ -5,8 +5,9 @@ from depth_anything_3.api import DepthAnything3
 MODEL_DIR = "/home/amila/DA3NESTED-GIANT-LARGE"
 
 # dataset_name = "kitty360"
-dataset_name = "matrixcity"
-# dataset_name = "physicalai"
+# dataset_name = "matrixcity"
+dataset_name = "physicalai"
+resolution = 796
 
 IMG_DIR   = f"/home/amila/datasets/{dataset_name}/images"
 N         = 1        # number of images to test
@@ -26,7 +27,7 @@ def profile_once(model, paths):
     pred = model.inference(
         image=paths,
         infer_gs=True,
-        process_res=448,
+        process_res=resolution,
     )
     torch.cuda.synchronize()
     t1 = time.perf_counter()
@@ -55,7 +56,8 @@ def main():
     ).to(device=device)
     model.eval()
 
-    images = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
+    # images = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
+    images = sorted(glob.glob(os.path.join(IMG_DIR, "*.jpg")))
     if not images:
         raise SystemExit(f"No images found in {IMG_DIR}")
 
@@ -68,7 +70,7 @@ def main():
         _ = model.inference(
         image=paths,
         infer_gs=True,
-        process_res=448,
+        process_res=resolution,
     )
     torch.cuda.synchronize()
 
