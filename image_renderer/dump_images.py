@@ -4,7 +4,10 @@ from depth_anything_3.api import DepthAnything3
 model = DepthAnything3.from_pretrained("depth-anything/DA3NESTED-GIANT-LARGE")
 model = model.to(device=torch.device("cuda"))
 
+# dataset_name = "kitti360"
 dataset_name = "matrixcity"
+# dataset_name = "physicalai"
+
 dataset_path = f"/home/amila/datasets/{dataset_name}/images"
 out_path = f"/home/amila/Depth-Anything-3/outputs/{dataset_name}"
 images = sorted(glob.glob(os.path.join(dataset_path, "*.png")))

@@ -29,16 +29,10 @@ def parse_args() -> argparse.Namespace:
         description="Compute PSNR, SSIM, LPIPS-VGG and LPIPS-Alex for paired images."
     )
     parser.add_argument(
-        "--gt-dir",
-        type=Path,
-        default=Path("/home/amila/datasets/kitti360/images/"),
-        help="Ground-truth image directory.",
-    )
-    parser.add_argument(
-        "--pred-dir",
-        type=Path,
-        default=Path("/home/amila/Depth-Anything-3/outputs/images/0000/"),
-        help="Rendered/predicted image directory.",
+        "--name",
+        type=str,
+        default="kitti360",
+        help="Dataset name.",
     )
     parser.add_argument(
         "--csv-out",
@@ -76,8 +70,8 @@ def to_lpips_tensor(img_uint8: np.ndarray, device: torch.device) -> torch.Tensor
 
 def main() -> None:
     args = parse_args()
-    gt_dir = args.gt_dir
-    pred_dir = args.pred_dir
+    gt_dir = Path(f"/home/amila/datasets/{args.name}/images/")
+    pred_dir = Path(f"/home/amila/Depth-Anything-3/outputs/{args.name}/images/0000/")
 
     if not gt_dir.is_dir():
         raise FileNotFoundError(f"GT directory not found: {gt_dir}")
