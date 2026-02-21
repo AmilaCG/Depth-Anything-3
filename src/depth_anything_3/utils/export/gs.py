@@ -80,6 +80,7 @@ def export_to_gs_video(
     enable_tqdm: Optional[bool] = True,
     output_name: Optional[str] = None,
     video_quality: Literal["low", "medium", "high"] = "high",
+    dump_images_dir: Optional[str] = None,
 ) -> None:
     gs_world = prediction.gaussians
     # if target poses are not provided, render the (smooth/interpolate) input poses
@@ -116,6 +117,7 @@ def export_to_gs_video(
         use_sh=True,
         color_mode=color_mode,
         enable_tqdm=enable_tqdm,
+        dump_images_dir=dump_images_dir,
     )
 
     # save as video

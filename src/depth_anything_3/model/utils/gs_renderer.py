@@ -13,10 +13,12 @@
 # limitations under the License.
 
 import math
+import os
 from math import isqrt
 from typing import Literal, Optional
 import torch
 from einops import rearrange, repeat
+from PIL import Image
 from tqdm import tqdm
 
 from depth_anything_3.specs import Gaussians
@@ -176,6 +178,8 @@ def run_renderer_in_chunk_w_trj_mode(
     torch.Tensor,  # color, "batch view 3 height width"
     torch.Tensor,  # depth, "batch view height width"
 ]:
+    dump_images_dir = kwargs.pop("dump_images_dir", None)
+
     cam2world = affine_inverse(as_homogeneous(extrinsics))
     if input_shape is not None:
         in_h, in_w = input_shape
@@ -336,5 +340,16 @@ def run_renderer_in_chunk_w_trj_mode(
         all_depths.append(rearrange(depth, "(b v) ... -> b v ...", v=cur_n_view))
     all_colors = torch.cat(all_colors, dim=1)
     all_depths = torch.cat(all_depths, dim=1)
+
+    if dump_images_dir is not None:
+        os.makedirs(dump_images_dir, exist_ok=True)
+        for b_idx in range(all_colors.shape[0]):
+            batch_dir = os.path.join(dump_images_dir, f"{b_idx:04d}")
+            os.makedirs(batch_dir, exist_ok=True)
+            for frame_idx, frame in enumerate(all_colors[b_idx]):
+                frame_u8 = frame.clamp(0, 1).mul(255).byte().permute(1, 2, 0).cpu().numpy()
+                Image.fromarray(frame_u8, mode="RGB").save(
+                    os.path.join(batch_dir, f"{frame_idx:06d}.png")
+                )
 
     return all_colors, all_depths
