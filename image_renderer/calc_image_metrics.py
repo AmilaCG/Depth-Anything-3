@@ -50,12 +50,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def list_image_names(folder: Path) -> set[str]:
-    return {
-        p.name
-        for p in folder.iterdir()
-        if p.is_file() and p.suffix.lower() in VALID_EXTS
-    }
+def list_image_paths(folder: Path) -> list[Path]:
+    return sorted(
+        [
+            p
+            for p in folder.iterdir()
+            if p.is_file() and p.suffix.lower() in VALID_EXTS
+        ],
+        key=lambda p: p.name,
+    )
 
 
 def load_rgb(path: Path) -> np.ndarray:
@@ -85,19 +88,20 @@ def main() -> None:
     if not pred_dir.is_dir():
         raise FileNotFoundError(f"Prediction directory not found: {pred_dir}")
 
-    gt_names = list_image_names(gt_dir)
-    pred_names = list_image_names(pred_dir)
-    common_names = sorted(gt_names & pred_names)
+    gt_paths = list_image_paths(gt_dir)
+    pred_paths = list_image_paths(pred_dir)
 
-    if not common_names:
-        raise RuntimeError("No matching image filenames found between directories.")
+    if not gt_paths:
+        raise RuntimeError(f"No valid GT images found in: {gt_dir}")
+    if not pred_paths:
+        raise RuntimeError(f"No valid prediction images found in: {pred_dir}")
 
-    missing_in_pred = sorted(gt_names - pred_names)
-    missing_in_gt = sorted(pred_names - gt_names)
-    if missing_in_pred:
-        print(f"[warn] {len(missing_in_pred)} GT files missing in pred dir.")
-    if missing_in_gt:
-        print(f"[warn] {len(missing_in_gt)} pred files missing in GT dir.")
+    pair_count = min(len(gt_paths), len(pred_paths))
+    if len(gt_paths) != len(pred_paths):
+        print(
+            f"[warn] Different image counts: gt={len(gt_paths)}, pred={len(pred_paths)}. "
+            f"Evaluating first {pair_count} sorted pairs."
+        )
 
     device = torch.device(args.device)
     lpips_vgg = lpips.LPIPS(net="vgg").to(device).eval()
@@ -109,16 +113,19 @@ def main() -> None:
     sum_lpips_vgg = 0.0
     sum_lpips_alex = 0.0
 
-    for idx, name in enumerate(common_names, start=1):
-        gt_img = load_rgb(gt_dir / name)
-        pred_img = load_rgb(pred_dir / name)
+    for idx, (gt_path, pred_path) in enumerate(
+        zip(gt_paths[:pair_count], pred_paths[:pair_count]), start=1
+    ):
+        gt_img = load_rgb(gt_path)
+        pred_img = load_rgb(pred_path)
 
         if gt_img.shape != pred_img.shape:
             gt_img = resize_gt_to_pred(gt_img, pred_img)
 
         if gt_img.shape != pred_img.shape:
             raise ValueError(
-                f"Shape mismatch after GT resize for {name}: "
+                "Shape mismatch after GT resize: "
+                f"gt_file={gt_path.name}, pred_file={pred_path.name}, "
                 f"gt={gt_img.shape}, pred={pred_img.shape}"
             )
 
@@ -137,7 +144,9 @@ def main() -> None:
 
         rows.append(
             {
-                "image": name,
+                "image": f"pair_{idx:06d}",
+                "gt_image": gt_path.name,
+                "pred_image": pred_path.name,
                 "psnr": psnr,
                 "ssim": ssim,
                 "lpips_vgg": lp_vgg,
@@ -151,7 +160,7 @@ def main() -> None:
         sum_lpips_alex += lp_alex
 
         print(
-            f"[{idx}/{len(common_names)}] {name} | "
+            f"[{idx}/{pair_count}] gt={gt_path.name} pred={pred_path.name} | "
             f"PSNR={psnr:.4f} SSIM={ssim:.4f} LPIPS-VGG={lp_vgg:.4f} LPIPS-Alex={lp_alex:.4f}"
         )
 
@@ -172,7 +181,16 @@ def main() -> None:
         args.csv_out.parent.mkdir(parents=True, exist_ok=True)
         with args.csv_out.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(
-                f, fieldnames=["image", "psnr", "ssim", "lpips_vgg", "lpips_alex"]
+                f,
+                fieldnames=[
+                    "image",
+                    "gt_image",
+                    "pred_image",
+                    "psnr",
+                    "ssim",
+                    "lpips_vgg",
+                    "lpips_alex",
+                ],
             )
             writer.writeheader()
             writer.writerows(rows)
