@@ -2,6 +2,7 @@ import argparse
 import csv
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
 from PIL import Image
@@ -61,6 +62,12 @@ def load_rgb(path: Path) -> np.ndarray:
     return np.array(Image.open(path).convert("RGB"), dtype=np.uint8)
 
 
+def resize_gt_to_pred(gt_img: np.ndarray, pred_img: np.ndarray) -> np.ndarray:
+    pred_h, pred_w = pred_img.shape[:2]
+    # Use area-based downsampling for fair evaluation when GT is higher resolution.
+    return cv2.resize(gt_img, (pred_w, pred_h), interpolation=cv2.INTER_AREA)
+
+
 def to_lpips_tensor(img_uint8: np.ndarray, device: torch.device) -> torch.Tensor:
     img = img_uint8.astype(np.float32) / 255.0
     img = img * 2.0 - 1.0
@@ -107,8 +114,12 @@ def main() -> None:
         pred_img = load_rgb(pred_dir / name)
 
         if gt_img.shape != pred_img.shape:
+            gt_img = resize_gt_to_pred(gt_img, pred_img)
+
+        if gt_img.shape != pred_img.shape:
             raise ValueError(
-                f"Shape mismatch for {name}: gt={gt_img.shape}, pred={pred_img.shape}"
+                f"Shape mismatch after GT resize for {name}: "
+                f"gt={gt_img.shape}, pred={pred_img.shape}"
             )
 
         psnr = float(peak_signal_noise_ratio(gt_img, pred_img, data_range=255))
