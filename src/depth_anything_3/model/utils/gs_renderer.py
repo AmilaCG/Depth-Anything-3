@@ -16,6 +16,7 @@ import math
 import os
 from math import isqrt
 from typing import Literal, Optional
+import numpy as np
 import torch
 from einops import rearrange, repeat
 from PIL import Image
@@ -343,9 +344,35 @@ def run_renderer_in_chunk_w_trj_mode(
 
     if dump_images_dir is not None:
         os.makedirs(dump_images_dir, exist_ok=True)
+        render_h, render_w = image_shape
+        b, v = tgt_extr.shape[:2]
+
+        flat_intr = rearrange(tgt_intr, "b v i j -> (b v) i j")
+        fov_x, fov_y = get_fov(flat_intr).unbind(dim=-1)
+        tan_fov_x = (0.5 * fov_x).tan()
+        tan_fov_y = (0.5 * fov_y).tan()
+        fx = (render_w / (2 * tan_fov_x)).reshape(b, v)
+        fy = (render_h / (2 * tan_fov_y)).reshape(b, v)
+
         for b_idx in range(all_colors.shape[0]):
             batch_dir = os.path.join(dump_images_dir, f"{b_idx:04d}")
             os.makedirs(batch_dir, exist_ok=True)
+
+            batch_K = torch.zeros((v, 3, 3), dtype=tgt_intr.dtype, device=tgt_intr.device)
+            batch_K[:, 0, 0] = fx[b_idx]
+            batch_K[:, 1, 1] = fy[b_idx]
+            batch_K[:, 0, 2] = render_w / 2.0
+            batch_K[:, 1, 2] = render_h / 2.0
+            batch_K[:, 2, 2] = 1.0
+
+            np.savez(
+                os.path.join(batch_dir, "camera_params.npz"),
+                viewmats=tgt_extr[b_idx].detach().cpu().numpy(),
+                Ks=batch_K.detach().cpu().numpy(),
+                height=np.int32(render_h),
+                width=np.int32(render_w),
+            )
+
             for frame_idx, frame in enumerate(all_colors[b_idx]):
                 frame_u8 = frame.clamp(0, 1).mul(255).byte().permute(1, 2, 0).cpu().numpy()
                 Image.fromarray(frame_u8, mode="RGB").save(
