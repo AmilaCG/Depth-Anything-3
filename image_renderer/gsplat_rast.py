@@ -75,7 +75,7 @@ def _save_images(rgb_frames: torch.Tensor, out_dir: str, frame_indices: Iterable
     os.makedirs(out_dir, exist_ok=True)
     for frame, idx in zip(rgb_frames, frame_indices):
         frame_u8 = frame.clamp(0, 1).mul(255).byte().cpu().numpy()
-        Image.fromarray(frame_u8, mode="RGB").save(os.path.join(out_dir, f"{idx:06d}.png"))
+        Image.fromarray(frame_u8, mode="RGB").save(os.path.join(out_dir, f"{idx:06d}_ply.png"))
 
 
 def main():

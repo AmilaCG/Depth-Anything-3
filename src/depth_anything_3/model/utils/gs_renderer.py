@@ -180,7 +180,9 @@ def run_renderer_in_chunk_w_trj_mode(
     torch.Tensor,  # color, "batch view 3 height width"
     torch.Tensor,  # depth, "batch view height width"
 ]:
-    dump_images_dir = kwargs.pop("dump_images_dir", None)
+    out_path = kwargs.pop("out_path", None)
+    export_camera_poses = kwargs.pop("export_camera_poses", False)
+    export_images = kwargs.pop("export_images", False)
 
     cam2world = affine_inverse(as_homogeneous(extrinsics))
     if input_shape is not None:
@@ -343,41 +345,48 @@ def run_renderer_in_chunk_w_trj_mode(
     all_colors = torch.cat(all_colors, dim=1)
     all_depths = torch.cat(all_depths, dim=1)
 
-    if dump_images_dir is not None:
-        os.makedirs(dump_images_dir, exist_ok=True)
-        render_h, render_w = image_shape
-        b, v = tgt_extr.shape[:2]
-
-        flat_intr = rearrange(tgt_intr, "b v i j -> (b v) i j")
-        fov_x, fov_y = get_fov(flat_intr).unbind(dim=-1)
-        tan_fov_x = (0.5 * fov_x).tan()
-        tan_fov_y = (0.5 * fov_y).tan()
-        fx = (render_w / (2 * tan_fov_x)).reshape(b, v)
-        fy = (render_h / (2 * tan_fov_y)).reshape(b, v)
-
+    if out_path is not None:
         for b_idx in range(all_colors.shape[0]):
-            batch_dir = os.path.join(dump_images_dir, f"{b_idx:04d}")
-            os.makedirs(batch_dir, exist_ok=True)
+            if (export_images):
+                image_path = f"{out_path}/images" 
+                if image_path is not None:
+                    os.makedirs(image_path, exist_ok=True)
 
-            batch_K = torch.zeros((v, 3, 3), dtype=tgt_intr.dtype, device=tgt_intr.device)
-            batch_K[:, 0, 0] = fx[b_idx]
-            batch_K[:, 1, 1] = fy[b_idx]
-            batch_K[:, 0, 2] = render_w / 2.0
-            batch_K[:, 1, 2] = render_h / 2.0
-            batch_K[:, 2, 2] = 1.0
+                for frame_idx, frame in enumerate(all_colors[b_idx]):
+                    frame_u8 = frame.clamp(0, 1).mul(255).byte().permute(1, 2, 0).cpu().numpy()
+                    Image.fromarray(frame_u8, mode="RGB").save(
+                        os.path.join(image_path, f"{b_idx:04d}_{frame_idx:06d}.png")
+                    )
 
-            np.savez(
-                os.path.join(batch_dir, "camera_params.npz"),
-                viewmats=tgt_extr[b_idx].detach().cpu().numpy(),
-                Ks=batch_K.detach().cpu().numpy(),
-                height=np.int32(render_h),
-                width=np.int32(render_w),
-            )
+            if (export_camera_poses):
+                camera_path = f"{out_path}/camera_poses" 
+                if camera_path is not None:
+                    os.makedirs(camera_path, exist_ok=True)
 
-            for frame_idx, frame in enumerate(all_colors[b_idx]):
-                frame_u8 = frame.clamp(0, 1).mul(255).byte().permute(1, 2, 0).cpu().numpy()
-                Image.fromarray(frame_u8, mode="RGB").save(
-                    os.path.join(batch_dir, f"{frame_idx:06d}.png")
+                render_h, render_w = image_shape
+                b, v = tgt_extr.shape[:2]
+
+                flat_intr = rearrange(tgt_intr, "b v i j -> (b v) i j")
+                fov_x, fov_y = get_fov(flat_intr).unbind(dim=-1)
+                tan_fov_x = (0.5 * fov_x).tan()
+                tan_fov_y = (0.5 * fov_y).tan()
+                fx = (render_w / (2 * tan_fov_x)).reshape(b, v)
+                fy = (render_h / (2 * tan_fov_y)).reshape(b, v)
+
+                batch_K = torch.zeros((v, 3, 3), dtype=tgt_intr.dtype, device=tgt_intr.device)
+                batch_K[:, 0, 0] = fx[b_idx]
+                batch_K[:, 1, 1] = fy[b_idx]
+                batch_K[:, 0, 2] = render_w / 2.0
+                batch_K[:, 1, 2] = render_h / 2.0
+                batch_K[:, 2, 2] = 1.0
+
+                np.savez(
+                    os.path.join(camera_path, f"{b_idx:04d}_camera_params.npz"),
+                    viewmats=tgt_extr[b_idx].detach().cpu().numpy(),
+                    Ks=batch_K.detach().cpu().numpy(),
+                    height=np.int32(render_h),
+                    width=np.int32(render_w),
                 )
+                print(f"Exported camera parameters for batch {b_idx} at {os.path.join(camera_path, f'{b_idx:04d}_camera_params.npz')}")
 
     return all_colors, all_depths
