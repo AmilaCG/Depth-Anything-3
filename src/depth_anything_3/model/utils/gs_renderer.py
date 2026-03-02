@@ -359,7 +359,7 @@ def run_renderer_in_chunk_w_trj_mode(
                     )
 
             if (export_camera_poses):
-                camera_path = f"{out_path}/camera_poses" 
+                camera_path = f"{out_path}/cameras" 
                 if camera_path is not None:
                     os.makedirs(camera_path, exist_ok=True)
 
@@ -381,12 +381,12 @@ def run_renderer_in_chunk_w_trj_mode(
                 batch_K[:, 2, 2] = 1.0
 
                 np.savez(
-                    os.path.join(camera_path, f"{b_idx:04d}_camera_params.npz"),
+                    os.path.join(camera_path, f"{b_idx:04d}_camera_poses.npz"),
                     viewmats=tgt_extr[b_idx].detach().cpu().numpy(),
                     Ks=batch_K.detach().cpu().numpy(),
                     height=np.int32(render_h),
                     width=np.int32(render_w),
                 )
-                print(f"Exported camera parameters for batch {b_idx} at {os.path.join(camera_path, f'{b_idx:04d}_camera_params.npz')}")
+                print(f"Exported camera parameters for batch {b_idx} to {camera_path}")
 
     return all_colors, all_depths
