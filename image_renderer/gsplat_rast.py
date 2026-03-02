@@ -1,5 +1,6 @@
 import argparse
 import os
+from math import isqrt
 from typing import Iterable
 
 import numpy as np
@@ -41,10 +42,33 @@ def _load_ply_gaussians(ply_path: str, device: torch.device):
     quats = quats / (quats.norm(dim=-1, keepdim=True) + 1e-8)
     sh_dc = torch.from_numpy(
         np.stack([vertex["f_dc_0"], vertex["f_dc_1"], vertex["f_dc_2"]], axis=1).astype(np.float32)
-    ).to(device)
-    colors = sh_dc[:, None, :]
+    ).to(device)  # [N, 3]
 
-    return means, quats, scales, opacities, colors
+    # Reconstruct SH layout expected by gsplat: [N, K, 3], where K=(degree+1)^2.
+    rest_names = [name for name in vertex.data.dtype.names if name.startswith("f_rest_")]
+    rest_names = sorted(rest_names, key=lambda x: int(x.split("_")[-1]))
+    if rest_names:
+        sh_rest_flat = torch.from_numpy(
+            np.stack([vertex[name] for name in rest_names], axis=1).astype(np.float32)
+        ).to(device)  # [N, 3*(K-1)]
+        if sh_rest_flat.shape[1] % 3 != 0:
+            raise ValueError(
+                f"Invalid f_rest size in {ply_path}: {sh_rest_flat.shape[1]} (must be divisible by 3)."
+            )
+        sh_rest = sh_rest_flat.view(sh_rest_flat.shape[0], 3, -1)  # [N, 3, K-1]
+        sh_full = torch.cat([sh_dc.unsqueeze(-1), sh_rest], dim=-1)  # [N, 3, K]
+    else:
+        sh_full = sh_dc.unsqueeze(-1)  # [N, 3, 1]
+
+    colors = sh_full.permute(0, 2, 1).contiguous()  # [N, K, 3]
+    n_coeff = colors.shape[1]
+    degree = isqrt(n_coeff) - 1
+    if (degree + 1) ** 2 != n_coeff:
+        raise ValueError(
+            f"Invalid SH coefficient count in {ply_path}: {n_coeff} (must be a perfect square)."
+        )
+
+    return means, quats, scales, opacities, colors, degree
 
 
 def _save_images(rgb_frames: torch.Tensor, out_dir: str, frame_indices: Iterable[int]):
@@ -83,7 +107,7 @@ def main():
     sel_viewmats = viewmats[frame_indices]
     sel_Ks = Ks[frame_indices]
 
-    means, quats, scales, opacities, colors = _load_ply_gaussians(args.ply, device)
+    means, quats, scales, opacities, colors, sh_degree = _load_ply_gaussians(args.ply, device)
     backgrounds = torch.zeros((len(frame_indices), 3), device=device)
 
     render_colors, _, _ = rasterization(
@@ -99,7 +123,7 @@ def main():
         width=W,
         height=H,
         packed=False,
-        sh_degree=0,
+        sh_degree=sh_degree,
     )
 
     rgb = render_colors[..., :3]

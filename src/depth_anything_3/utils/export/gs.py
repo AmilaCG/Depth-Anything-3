@@ -49,11 +49,14 @@ def export_to_gs_ply(
         save_path=save_path,
         ctx_depth=pred_depth,
         shift_and_scale=False,
-        save_sh_dc_only=True,
+        # save_sh_dc_only=True,
+        save_sh_dc_only=False, # Save all SH coeffs
         gs_views_interval=gs_views_interval,
         inv_opacity=True,
-        prune_by_depth_percent=0.9,
-        prune_border_gs=True,
+        # prune_by_depth_percent=0.9,
+        # prune_border_gs=True,
+        prune_by_depth_percent=1.0, # No pruning
+        prune_border_gs=False, # No pruning
         match_3dgs_mcmc_dev=False,
     )
 

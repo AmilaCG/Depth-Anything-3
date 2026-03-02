@@ -126,6 +126,7 @@ def render_3dgs(
             i
         ]  # [v, 3]
 
+        print(f"SH degree: {degree}, SH coeff count: {i_colors.shape[1]}")
         render_colors, render_alphas, info = rasterization(
             means=i_means,
             quats=i_quats,  # [N, 4]

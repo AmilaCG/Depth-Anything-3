@@ -99,6 +99,7 @@ def export_ply(
     attributes = np.concatenate(attributes, axis=1)
     elements[:] = list(map(tuple, attributes))
     path.parent.mkdir(exist_ok=True, parents=True)
+    print(f"Gaussian count when exporting: {means.shape[0]}")
     PlyData([PlyElement.describe(elements, "vertex")]).write(path)
 
 
