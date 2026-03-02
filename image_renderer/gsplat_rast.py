@@ -75,7 +75,7 @@ def _save_images(rgb_frames: torch.Tensor, out_dir: str, frame_indices: Iterable
     os.makedirs(out_dir, exist_ok=True)
     for frame, idx in zip(rgb_frames, frame_indices):
         frame_u8 = frame.clamp(0, 1).mul(255).byte().cpu().numpy()
-        Image.fromarray(frame_u8, mode="RGB").save(os.path.join(out_dir, f"{idx:06d}_ply.png"))
+        Image.fromarray(frame_u8, mode="RGB").save(os.path.join(out_dir, f"{idx:06d}.png"))
 
 
 def main():
@@ -110,6 +110,7 @@ def main():
     means, quats, scales, opacities, colors, sh_degree = _load_ply_gaussians(args.ply, device)
     backgrounds = torch.zeros((len(frame_indices), 3), device=device)
 
+    print(f"Rendering {means.shape[0]} Gaussians...")
     render_colors, _, _ = rasterization(
         means=means,
         quats=quats,
