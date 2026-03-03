@@ -92,10 +92,9 @@ def main():
         help="Comma-separated frame indices to render, e.g. 0,8,16,24",
     )
     parser.add_argument("--out", required=True, help="Output directory for rendered PNGs")
-    parser.add_argument("--device", default="cuda", help="Device for rendering (default: cuda)")
     args = parser.parse_args()
 
-    device = torch.device(args.device)
+    device = torch.device("cuda")
 
     cam = np.load(args.camera)
     viewmats = torch.from_numpy(cam["viewmats"]).float().to(device)
