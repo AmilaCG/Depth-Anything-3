@@ -1,5 +1,4 @@
 import argparse
-import csv
 from pathlib import Path
 
 import cv2
@@ -36,16 +35,16 @@ def parse_args() -> argparse.Namespace:
         help="Dataset name.",
     )
     parser.add_argument(
-        "--csv-out",
+        "--gt-dir",
         type=Path,
         default=None,
-        help="Optional output CSV path for per-image metrics.",
+        help="Optional override for GT image directory.",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
-        help="Device for LPIPS (cuda or cpu).",
+        "--pred-dir",
+        type=Path,
+        default=None,
+        help="Optional override for prediction image directory.",
     )
     return parser.parse_args()
 
@@ -80,8 +79,10 @@ def to_lpips_tensor(img_uint8: np.ndarray, device: torch.device) -> torch.Tensor
 
 def main() -> None:
     args = parse_args()
-    gt_dir = Path(f"/home/amila/datasets/{args.name}/images/")
-    pred_dir = Path(f"/home/amila/Depth-Anything-3/outputs/{args.name}/images/0000/")
+    gt_dir = args.gt_dir or Path(f"/home/amila/datasets/{args.name}/images/")
+    pred_dir = args.pred_dir or Path(
+        f"/home/amila/Depth-Anything-3/outputs/{args.name}/gsplat_renders/"
+    )
 
     if not gt_dir.is_dir():
         raise FileNotFoundError(f"GT directory not found: {gt_dir}")
@@ -96,14 +97,30 @@ def main() -> None:
     if not pred_paths:
         raise RuntimeError(f"No valid prediction images found in: {pred_dir}")
 
-    pair_count = min(len(gt_paths), len(pred_paths))
-    if len(gt_paths) != len(pred_paths):
-        print(
-            f"[warn] Different image counts: gt={len(gt_paths)}, pred={len(pred_paths)}. "
-            f"Evaluating first {pair_count} sorted pairs."
+    gt_by_name = {p.name: p for p in gt_paths}
+    pred_by_name = {p.name: p for p in pred_paths}
+    common_names = sorted(set(gt_by_name) & set(pred_by_name))
+
+    if not common_names:
+        raise RuntimeError(
+            "No matching filenames between GT and predictions. "
+            f"gt_dir={gt_dir}, pred_dir={pred_dir}"
         )
 
-    device = torch.device(args.device)
+    missing_in_pred = sorted(set(gt_by_name) - set(pred_by_name))
+    missing_in_gt = sorted(set(pred_by_name) - set(gt_by_name))
+    if missing_in_pred:
+        print(
+            f"[warn] {len(missing_in_pred)} GT file(s) have no matching prediction; "
+            "they will be skipped."
+        )
+    if missing_in_gt:
+        print(
+            f"[warn] {len(missing_in_gt)} prediction file(s) have no matching GT; "
+            "they will be skipped."
+        )
+
+    device = torch.device("cuda")
     lpips_vgg = lpips.LPIPS(net="vgg").to(device).eval()
     lpips_alex = lpips.LPIPS(net="alex").to(device).eval()
 
@@ -113,9 +130,10 @@ def main() -> None:
     sum_lpips_vgg = 0.0
     sum_lpips_alex = 0.0
 
-    for idx, (gt_path, pred_path) in enumerate(
-        zip(gt_paths[:pair_count], pred_paths[:pair_count]), start=1
-    ):
+    pair_count = len(common_names)
+    for idx, name in enumerate(common_names, start=1):
+        gt_path = gt_by_name[name]
+        pred_path = pred_by_name[name]
         gt_img = load_rgb(gt_path)
         pred_img = load_rgb(pred_path)
 
@@ -165,37 +183,17 @@ def main() -> None:
         )
 
     n = len(rows)
-    mean_psnr = sum_psnr / n
-    mean_ssim = sum_ssim / n
-    mean_lpips_vgg = sum_lpips_vgg / n
-    mean_lpips_alex = sum_lpips_alex / n
+    avg_psnr = sum_psnr / n
+    avg_ssim = sum_ssim / n
+    avg_lpips_vgg = sum_lpips_vgg / n
+    avg_lpips_alex = sum_lpips_alex / n
 
-    print("\n=== Mean Metrics ===")
+    print("\n=== Average Metrics ===")
     print(f"Pairs evaluated: {n}")
-    print(f"PSNR       : {mean_psnr:.6f}")
-    print(f"SSIM       : {mean_ssim:.6f}")
-    print(f"LPIPS-VGG  : {mean_lpips_vgg:.6f}")
-    print(f"LPIPS-Alex : {mean_lpips_alex:.6f}")
-
-    if args.csv_out is not None:
-        args.csv_out.parent.mkdir(parents=True, exist_ok=True)
-        with args.csv_out.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "image",
-                    "gt_image",
-                    "pred_image",
-                    "psnr",
-                    "ssim",
-                    "lpips_vgg",
-                    "lpips_alex",
-                ],
-            )
-            writer.writeheader()
-            writer.writerows(rows)
-        print(f"\nPer-image metrics written to: {args.csv_out}")
-
+    print(f"PSNR       : {avg_psnr:.6f}")
+    print(f"SSIM       : {avg_ssim:.6f}")
+    print(f"LPIPS-VGG  : {avg_lpips_vgg:.6f}")
+    print(f"LPIPS-Alex : {avg_lpips_alex:.6f}")
 
 if __name__ == "__main__":
     main()
