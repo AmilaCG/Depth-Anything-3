@@ -13,6 +13,11 @@ def parse_args():
         help="Enable exporting rendered images.",
     )
     parser.add_argument(
+        "--dump-ply",
+        action="store_true",
+        help="Enable exporting Gaussian ply.",
+    )
+    parser.add_argument(
         "--dump-cameras",
         action="store_true",
         help="Enable exporting camera poses.",
@@ -53,21 +58,13 @@ def main():
         image = [img for i, img in enumerate(images) if i not in {0, 8, 16, 24, 32, 40, 48, 56}] if args.test_views else images,
         infer_gs=True,
         export_dir=out_path,
-        export_format="gs_ply",
+        export_format="gs_ply" if args.dump_ply else "gs_video",
         process_res=448,
         export_kwargs=export_args,
     )
 
     # prediction.processed_images : [N, H, W, 3] uint8   array
-    print(prediction.processed_images.shape)
-    # prediction.depth            : [N, H, W]    float32 array
-    # print(prediction.depth.shape)
-    # prediction.conf             : [N, H, W]    float32 array
-    # print(prediction.conf.shape)
-    # prediction.extrinsics       : [N, 3, 4]    float32 array # opencv w2c or colmap format
-    # print(prediction.extrinsics.shape)
-    # prediction.intrinsics       : [N, 3, 3]    float32 array
-    # print(prediction.intrinsics.shape)
+    print(f"Processed images: {prediction.processed_images.shape}")
 
 if __name__ == "__main__":
     main()
