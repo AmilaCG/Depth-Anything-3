@@ -4,10 +4,13 @@ from depth_anything_3.api import DepthAnything3
 
 MODEL_DIR = "/home/amila/DA3NESTED-GIANT-LARGE"
 
-# dataset_name = "kitty360"
+dataset_name = "kitti360"
 # dataset_name = "matrixcity"
-dataset_name = "physicalai"
-resolution = 796
+# dataset_name = "physicalai"
+resolution = 448
+# resolution = 796
+
+test_views = True  # if True, skip every 8th frame (0, 8, 16, ...)
 
 IMG_DIR   = f"/home/amila/datasets/{dataset_name}/images"
 N         = 1        # number of images to test
@@ -56,13 +59,14 @@ def main():
     ).to(device=device)
     model.eval()
 
-    # images = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
-    images = sorted(glob.glob(os.path.join(IMG_DIR, "*.jpg")))
+    images = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
+    # images = sorted(glob.glob(os.path.join(IMG_DIR, "*.jpg")))
     if not images:
         raise SystemExit(f"No images found in {IMG_DIR}")
 
     # paths = images[:N]
-    paths = images
+    # paths = images
+    paths = [img for i, img in enumerate(images) if i not in {0, 8, 16, 24, 32, 40, 48, 56}] if test_views else images
     print("Using:", paths)
 
     # Warmup (ignore results)
