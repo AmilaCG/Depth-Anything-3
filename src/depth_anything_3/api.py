@@ -212,6 +212,18 @@ class DepthAnything3(nn.Module, PyTorchModelHubMixin):
 
         # Convert raw output to prediction
         prediction = self._convert_to_prediction(raw_output)
+        # Keep model-frame poses for GS rendering. Input-pose alignment below can move
+        # prediction.extrinsics to a different frame than prediction.gaussians.
+        gs_render_exts = None
+        gs_render_ixts = None
+        if infer_gs:
+            if prediction.extrinsics is not None:
+                gs_render_exts = prediction.extrinsics.copy()
+                # print(f"is_metric: {prediction.is_metric}, scale_factor: {prediction.scale_factor}")
+                if prediction.is_metric and prediction.scale_factor is not None:
+                    gs_render_exts[..., :3, 3] /= prediction.scale_factor
+            if prediction.intrinsics is not None:
+                gs_render_ixts = prediction.intrinsics.copy()
 
         # Align prediction to extrinsincs
         prediction = self._align_to_input_extrinsics_intrinsics(
@@ -232,8 +244,10 @@ class DepthAnything3(nn.Module, PyTorchModelHubMixin):
                         export_kwargs["gs_video"] = {}
                     export_kwargs["gs_video"].update(
                         {
-                            "extrinsics": render_exts,
-                            "intrinsics": render_ixts,
+                            # "extrinsics": render_exts,
+                            # "intrinsics": render_ixts,  # Original intrinsics are not affected
+                            "extrinsics": render_exts if render_exts is not None else gs_render_exts,
+                            "intrinsics": render_ixts if render_ixts is not None else gs_render_ixts,
                             "out_image_hw": render_hw,
                         }
                     )
