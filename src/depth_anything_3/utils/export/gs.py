@@ -15,7 +15,6 @@
 import os
 from typing import Literal, Optional
 import moviepy.editor as mpy
-import numpy as np
 import torch
 
 from depth_anything_3.model.utils.gs_renderer import run_renderer_in_chunk_w_trj_mode
@@ -29,13 +28,6 @@ VIDEO_QUALITY_MAP = {
     "medium": {"crf": "23", "preset": "medium"},
     "high": {"crf": "18", "preset": "slow"},
 }
-
-def _to_render_tensor(arr, device_like: torch.Tensor) -> torch.Tensor:
-    if isinstance(arr, np.ndarray):
-        arr = torch.from_numpy(arr)
-    if arr.dim() == 3:
-        arr = arr.unsqueeze(0)
-    return arr.to(device_like)
 
 def export_to_gs_ply(
     prediction: Prediction,
@@ -97,7 +89,7 @@ def export_to_gs_video(
     gs_world = prediction.gaussians
     # if target poses are not provided, render the (smooth/interpolate) input poses
     if extrinsics is not None:
-        tgt_extrs = _to_render_tensor(extrinsics, gs_world.means)
+        tgt_extrs = torch.from_numpy(extrinsics).unsqueeze(0).to(gs_world.means)
     else:
         tgt_extrs = torch.from_numpy(prediction.extrinsics).unsqueeze(0).to(gs_world.means)
         if prediction.is_metric:
@@ -105,7 +97,7 @@ def export_to_gs_video(
             if scale_factor is not None:
                 tgt_extrs[:, :, :3, 3] /= scale_factor
     tgt_intrs = (
-        _to_render_tensor(intrinsics, gs_world.means)
+        torch.from_numpy(intrinsics).unsqueeze(0).to(gs_world.means)
         if intrinsics is not None
         else torch.from_numpy(prediction.intrinsics).unsqueeze(0).to(gs_world.means)
     )

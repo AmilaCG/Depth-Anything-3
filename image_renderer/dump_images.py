@@ -102,13 +102,14 @@ def main():
 
     prediction = model.inference(
         image=selected_images,
-        # extrinsics=extrinsics,
-        # intrinsics=intrinsics,
+        extrinsics=extrinsics,
+        intrinsics=intrinsics,
         infer_gs=True,
         export_dir=out_path,
         export_format="gs_ply" if args.dump_ply else "gs_video",
         process_res=448,
         export_kwargs=export_args,
+        align_to_input_ext_scale=False,
     )
 
     # prediction.processed_images : [N, H, W, 3] uint8   array
