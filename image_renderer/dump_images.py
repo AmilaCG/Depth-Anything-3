@@ -31,6 +31,12 @@ def parse_args():
         action="store_true",
         help="Infer using subset of input views (skip 0, 8, 16, ...)",
     )
+    parser.add_argument(
+        "--camera-npz",
+        type=str,
+        default=None,
+        help="Path to exported camera poses .npz from gs_renderer.py (keys: viewmats, Ks).",
+    )
     return parser.parse_args()
 
 def load_camera_json(json_path):
@@ -62,6 +68,28 @@ def load_camera_json(json_path):
 
     return k_mat.copy(), w2c_dict
 
+def load_camera_npz(npz_path):
+    cam = np.load(npz_path)
+    if "viewmats" not in cam or "Ks" not in cam:
+        raise KeyError(
+            f"{npz_path} must contain 'viewmats' and 'Ks'. "
+            f"Found keys: {list(cam.keys())}"
+        )
+
+    viewmats = np.asarray(cam["viewmats"], dtype=np.float32)
+    intrinsics = np.asarray(cam["Ks"], dtype=np.float32)
+
+    if viewmats.ndim != 3 or viewmats.shape[1:] != (4, 4):
+        raise ValueError(f"Invalid viewmats shape {viewmats.shape}; expected [N, 4, 4].")
+    if intrinsics.ndim != 3 or intrinsics.shape[1:] != (3, 3):
+        raise ValueError(f"Invalid Ks shape {intrinsics.shape}; expected [N, 3, 3].")
+    if viewmats.shape[0] != intrinsics.shape[0]:
+        raise ValueError(
+            f"viewmats/Ks length mismatch: {viewmats.shape[0]} vs {intrinsics.shape[0]}"
+        )
+
+    return intrinsics.copy(), viewmats.copy()
+
 def main():
     args = parse_args()
 
@@ -88,17 +116,33 @@ def main():
     }
 
     # selected_images = images[:5]
-    selected_images = [img for i, img in enumerate(images) if i not in {0, 8, 16, 24, 32, 40, 48, 56}] if args.test_views else images
+    selected_indices = (
+        [i for i in range(len(images)) if i not in {0, 8, 16, 24, 32, 40, 48, 56}]
+        if args.test_views
+        else list(range(len(images)))
+    )
+    selected_images = [images[i] for i in selected_indices]
 
-    k_mat, w2c_mats = load_camera_json(f"{dataset_path}/transforms.json")
-    selected_names = [os.path.basename(p) for p in selected_images]
-    print(f"Selected names: {selected_names}")
-    extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
-    # print(f"Selected extrinsics shape: {extrinsics.shape}")
-    # print(f"Extrinsics: {extrinsics}")
-    intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
-    # print(f"Selected intrinsics shape: {intrinsics.shape}")
-    # print(f"Intrinsics: {intrinsics}")
+    if args.camera_npz:
+        intrinsics_all, extrinsics_all = load_camera_npz(args.camera_npz)
+        if extrinsics_all.shape[0] == len(images):
+            cam_indices = selected_indices
+        elif extrinsics_all.shape[0] == len(selected_images):
+            cam_indices = list(range(len(selected_images)))
+        else:
+            raise ValueError(
+                "Camera count in npz does not match full or selected image counts: "
+                f"{extrinsics_all.shape[0]} vs {len(images)} or {len(selected_images)}."
+            )
+        extrinsics = extrinsics_all[cam_indices]
+        intrinsics = intrinsics_all[cam_indices]
+        print(f"Loaded cameras from npz: {args.camera_npz}")
+    else:
+        k_mat, w2c_mats = load_camera_json(f"{dataset_path}/transforms.json")
+        selected_names = [os.path.basename(p) for p in selected_images]
+        print(f"Selected names: {selected_names}")
+        extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
+        intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
 
     prediction = model.inference(
         image=selected_images,
