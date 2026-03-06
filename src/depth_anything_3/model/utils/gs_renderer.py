@@ -346,6 +346,9 @@ def run_renderer_in_chunk_w_trj_mode(
     all_depths = torch.cat(all_depths, dim=1)
 
     if out_path is not None:
+        native_intrinsics = intrinsics.detach().cpu().numpy()
+        native_extrinsics = as_homogeneous(extrinsics).detach().cpu().numpy()
+
         for b_idx in range(all_colors.shape[0]):
             if (export_images):
                 image_path = f"{out_path}/images" 
@@ -386,6 +389,11 @@ def run_renderer_in_chunk_w_trj_mode(
                     Ks=batch_K.detach().cpu().numpy(),
                     height=np.int32(render_h),
                     width=np.int32(render_w),
+                )
+                np.savez(
+                    os.path.join(camera_path, f"{b_idx:04d}_camera_poses_native.npz"),
+                    intrinsics=native_intrinsics[b_idx],
+                    extrinsics=native_extrinsics[b_idx],
                 )
                 print(f"Exported camera parameters for batch {b_idx} to {camera_path}")
 

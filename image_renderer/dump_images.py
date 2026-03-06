@@ -37,6 +37,12 @@ def parse_args():
         default=None,
         help="Path to exported camera poses .npz from gs_renderer.py (keys: viewmats, Ks).",
     )
+    parser.add_argument(
+        "--camera-npz-native",
+        type=str,
+        default=None,
+        help="Path to exported camera poses .npz from gs_renderer.py (keys: intrinsics, extrinsics).",
+    )
     return parser.parse_args()
 
 def load_camera_json(json_path):
@@ -54,11 +60,6 @@ def load_camera_json(json_path):
 
     w2c_dict = {}
     for frame in data["frames"]:
-        # c2w = np.array(frame["transform_matrix"], dtype=np.float32)
-        # w2c = np.linalg.inv(c2w).astype(np.float32)
-        # identity_check = np.matmul(c2w, w2c)
-        # print(f"Identity check (should be close to identity matrix):\n{identity_check}")
-
         c2w_gl = np.array(frame["transform_matrix"], dtype=np.float32)
         c2w_cv = c2w_gl @ OPENGL_TO_OPENCV
         w2c = np.linalg.inv(c2w_cv).astype(np.float32)
@@ -89,6 +90,57 @@ def load_camera_npz(npz_path):
         )
 
     return intrinsics.copy(), viewmats.copy()
+
+def load_camera_npz_native(npz_path):
+    cam = np.load(npz_path)
+
+    if "intrinsics" not in cam or "extrinsics" not in cam:
+        raise KeyError(
+            f"{npz_path} must contain 'intrinsics' and 'extrinsics'. "
+            f"Found keys: {list(cam.keys())}"
+        )
+
+    intrinsics = np.asarray(cam["intrinsics"], dtype=np.float32)
+    extrinsics = np.asarray(cam["extrinsics"], dtype=np.float32)
+
+    # Native export may store a batch dimension: [B, N, ...].
+    if intrinsics.ndim == 4:
+        if intrinsics.shape[0] != 1:
+            raise ValueError(
+                "Native camera npz intrinsics contain multiple batches. "
+                "Please provide a single-batch file for dump_images.py."
+            )
+        intrinsics = intrinsics[0]
+    if extrinsics.ndim == 4:
+        if extrinsics.shape[0] != 1:
+            raise ValueError(
+                "Native camera npz extrinsics contain multiple batches. "
+                "Please provide a single-batch file for dump_images.py."
+            )
+        extrinsics = extrinsics[0]
+
+    if intrinsics.ndim != 3 or intrinsics.shape[1:] != (3, 3):
+        raise ValueError(
+            f"Invalid intrinsics shape {intrinsics.shape}; expected [N, 3, 3]."
+        )
+
+    if extrinsics.ndim != 3 or extrinsics.shape[1:] not in {(3, 4), (4, 4)}:
+        raise ValueError(
+            f"Invalid extrinsics shape {extrinsics.shape}; expected [N, 3, 4] or [N, 4, 4]."
+        )
+
+    # Support native exporters that store 3x4 world-to-camera matrices.
+    if extrinsics.shape[1:] == (3, 4):
+        bottom_row = np.zeros((extrinsics.shape[0], 1, 4), dtype=extrinsics.dtype)
+        bottom_row[:, 0, 3] = 1.0
+        extrinsics = np.concatenate([extrinsics, bottom_row], axis=1)
+
+    if intrinsics.shape[0] != extrinsics.shape[0]:
+        raise ValueError(
+            f"intrinsics/extrinsics length mismatch: {intrinsics.shape[0]} vs {extrinsics.shape[0]}"
+        )
+
+    return intrinsics.copy(), extrinsics.copy()
 
 def main():
     args = parse_args()
@@ -137,12 +189,28 @@ def main():
         extrinsics = extrinsics_all[cam_indices]
         intrinsics = intrinsics_all[cam_indices]
         print(f"Loaded cameras from npz: {args.camera_npz}")
+    elif args.camera_npz_native:
+        intrinsics_all, extrinsics_all = load_camera_npz_native(args.camera_npz_native)
+        if extrinsics_all.shape[0] == len(images):
+            cam_indices = selected_indices
+        elif extrinsics_all.shape[0] == len(selected_images):
+            cam_indices = list(range(len(selected_images)))
+        else:
+            raise ValueError(
+                "Camera count in native npz does not match full or selected image counts: "
+                f"{extrinsics_all.shape[0]} vs {len(images)} or {len(selected_images)}."
+            )
+        extrinsics = extrinsics_all[cam_indices]
+        intrinsics = intrinsics_all[cam_indices]
+        print(f"Loaded native cameras from npz: {args.camera_npz_native}")
     else:
-        k_mat, w2c_mats = load_camera_json(f"{dataset_path}/transforms.json")
-        selected_names = [os.path.basename(p) for p in selected_images]
-        print(f"Selected names: {selected_names}")
-        extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
-        intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
+        # k_mat, w2c_mats = load_camera_json(f"{dataset_path}/transforms.json")
+        # selected_names = [os.path.basename(p) for p in selected_images]
+        # print(f"Selected names: {selected_names}")
+        # extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
+        # intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
+        extrinsics = None
+        intrinsics = None
 
     prediction = model.inference(
         image=selected_images,

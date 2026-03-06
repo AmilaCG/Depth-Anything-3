@@ -89,7 +89,7 @@ def export_to_gs_video(
     gs_world = prediction.gaussians
     # if target poses are not provided, render the (smooth/interpolate) input poses
     if extrinsics is not None:
-        tgt_extrs = torch.from_numpy(extrinsics).unsqueeze(0).to(gs_world.means)
+        tgt_extrs = extrinsics
     else:
         tgt_extrs = torch.from_numpy(prediction.extrinsics).unsqueeze(0).to(gs_world.means)
         if prediction.is_metric:
@@ -97,7 +97,7 @@ def export_to_gs_video(
             if scale_factor is not None:
                 tgt_extrs[:, :, :3, 3] /= scale_factor
     tgt_intrs = (
-        torch.from_numpy(intrinsics).unsqueeze(0).to(gs_world.means)
+        intrinsics
         if intrinsics is not None
         else torch.from_numpy(prediction.intrinsics).unsqueeze(0).to(gs_world.means)
     )
