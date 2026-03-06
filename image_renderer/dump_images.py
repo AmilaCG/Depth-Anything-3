@@ -94,16 +94,16 @@ def main():
     selected_names = [os.path.basename(p) for p in selected_images]
     print(f"Selected names: {selected_names}")
     extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
-    print(f"Selected extrinsics shape: {extrinsics.shape}")
-    print(f"Extrinsics: {extrinsics}")
+    # print(f"Selected extrinsics shape: {extrinsics.shape}")
+    # print(f"Extrinsics: {extrinsics}")
     intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
-    print(f"Selected intrinsics shape: {intrinsics.shape}")
-    print(f"Intrinsics: {intrinsics}")
+    # print(f"Selected intrinsics shape: {intrinsics.shape}")
+    # print(f"Intrinsics: {intrinsics}")
 
     prediction = model.inference(
         image=selected_images,
-        extrinsics=extrinsics,
-        intrinsics=intrinsics,
+        # extrinsics=extrinsics,
+        # intrinsics=intrinsics,
         infer_gs=True,
         export_dir=out_path,
         export_format="gs_ply" if args.dump_ply else "gs_video",

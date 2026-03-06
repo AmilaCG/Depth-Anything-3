@@ -30,14 +30,12 @@ VIDEO_QUALITY_MAP = {
     "high": {"crf": "18", "preset": "slow"},
 }
 
-
 def _to_render_tensor(arr, device_like: torch.Tensor) -> torch.Tensor:
     if isinstance(arr, np.ndarray):
         arr = torch.from_numpy(arr)
     if arr.dim() == 3:
         arr = arr.unsqueeze(0)
     return arr.to(device_like)
-
 
 def export_to_gs_ply(
     prediction: Prediction,

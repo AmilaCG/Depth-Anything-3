@@ -109,6 +109,7 @@ def main():
     means, quats, scales, opacities, colors, sh_degree = _load_ply_gaussians(args.ply, device)
     backgrounds = torch.zeros((len(frame_indices), 3), device=device)
 
+    # print(f"means: {means[:4]}, quats: {quats[:4]}, scales: {scales[:4]}")
     print(f"Rendering {means.shape[0]} Gaussians...")
     render_colors, _, _ = rasterization(
         means=means,

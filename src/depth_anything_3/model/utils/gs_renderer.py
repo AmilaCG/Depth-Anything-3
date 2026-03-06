@@ -126,7 +126,7 @@ def render_3dgs(
             i
         ]  # [v, 3]
 
-        print(f"SH degree: {degree}, SH coeff count: {i_colors.shape[1]}")
+        # print(f"means: {i_means[:4]}, quats: {i_quats[:4]}, scales: {i_scales[:4]}")
         render_colors, render_alphas, info = rasterization(
             means=i_means,
             quats=i_quats,  # [N, 4]
@@ -355,7 +355,7 @@ def run_renderer_in_chunk_w_trj_mode(
                 for frame_idx, frame in enumerate(all_colors[b_idx]):
                     frame_u8 = frame.clamp(0, 1).mul(255).byte().permute(1, 2, 0).cpu().numpy()
                     Image.fromarray(frame_u8, mode="RGB").save(
-                        os.path.join(image_path, f"{b_idx:04d}_{frame_idx:06d}.png")
+                        os.path.join(image_path, f"{frame_idx:06d}.png")
                     )
 
             if (export_camera_poses):
