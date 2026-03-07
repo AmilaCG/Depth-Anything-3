@@ -15,6 +15,7 @@
 import os
 from typing import Literal, Optional
 import moviepy.editor as mpy
+import numpy as np
 import torch
 
 from depth_anything_3.model.utils.gs_renderer import run_renderer_in_chunk_w_trj_mode
@@ -87,9 +88,23 @@ def export_to_gs_video(
     export_images: Optional[bool] = False,
 ) -> None:
     gs_world = prediction.gaussians
+
+    def _to_cam_tensor(cam_data):
+        if cam_data is None:
+            return None
+        if isinstance(cam_data, np.ndarray):
+            cam_t = torch.from_numpy(cam_data)
+        elif torch.is_tensor(cam_data):
+            cam_t = cam_data
+        else:
+            raise TypeError(f"Unsupported camera type: {type(cam_data)}")
+        if cam_t.ndim == 3:  # [V, ...] -> [B=1, V, ...]
+            cam_t = cam_t.unsqueeze(0)
+        return cam_t.to(gs_world.means)
+
     # if target poses are not provided, render the (smooth/interpolate) input poses
     if extrinsics is not None:
-        tgt_extrs = extrinsics
+        tgt_extrs = _to_cam_tensor(extrinsics)
     else:
         tgt_extrs = torch.from_numpy(prediction.extrinsics).unsqueeze(0).to(gs_world.means)
         if prediction.is_metric:
@@ -97,7 +112,7 @@ def export_to_gs_video(
             if scale_factor is not None:
                 tgt_extrs[:, :, :3, 3] /= scale_factor
     tgt_intrs = (
-        intrinsics
+        _to_cam_tensor(intrinsics)
         if intrinsics is not None
         else torch.from_numpy(prediction.intrinsics).unsqueeze(0).to(gs_world.means)
     )

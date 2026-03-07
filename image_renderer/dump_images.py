@@ -4,6 +4,8 @@ import os
 
 import torch
 from depth_anything_3.api import DepthAnything3
+from depth_anything_3.utils.read_write_model import read_cameras_binary
+from depth_anything_3.utils.read_write_model import read_images_binary
 import json
 import numpy as np
 
@@ -42,6 +44,16 @@ def parse_args():
         type=str,
         default=None,
         help="Path to exported camera poses .npz from gs_renderer.py (keys: intrinsics, extrinsics).",
+    )
+    parser.add_argument(
+        "--camera-json",
+        action="store_true",
+        help="Path to exported COLMAP camera poses bin.",
+    )
+    parser.add_argument(
+        "--camera-bin",
+        action="store_true",
+        help="Path to exported COLMAP camera poses bin.",
     )
     return parser.parse_args()
 
@@ -142,6 +154,82 @@ def load_camera_npz_native(npz_path):
 
     return intrinsics.copy(), extrinsics.copy()
 
+
+def _build_ixt_from_colmap_camera(camera):
+    """Build a 3x3 intrinsic matrix from COLMAP camera params."""
+    params = camera.params
+    model = camera.model
+    ixt = np.eye(3, dtype=np.float32)
+
+    if model in {"SIMPLE_PINHOLE", "SIMPLE_RADIAL", "SIMPLE_RADIAL_FISHEYE", "RADIAL", "RADIAL_FISHEYE"}:
+        focal = float(params[0])
+        ixt[0, 0] = focal
+        ixt[1, 1] = focal
+        ixt[0, 2] = float(params[1])
+        ixt[1, 2] = float(params[2])
+    elif model in {"PINHOLE", "OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV", "FOV"}:
+        ixt[0, 0] = float(params[0])
+        ixt[1, 1] = float(params[1])
+        ixt[0, 2] = float(params[2])
+        ixt[1, 2] = float(params[3])
+    else:
+        raise NotImplementedError(
+            f"COLMAP camera model '{model}' is not supported in dump_images.py"
+        )
+
+    # COLMAP convention adjustment used across DA3 dataset loaders.
+    ixt[:2, 2] -= 0.5
+    return ixt
+
+def load_camera_bin_colmap(filepath, image_paths=None):
+    cam_bin_path = f"{filepath}/cameras.bin"
+    img_bin_path = f"{filepath}/images.bin"
+    cams = read_cameras_binary(cam_bin_path)
+    images = read_images_binary(img_bin_path)
+
+    print(f"Loaded COLMAP cameras/images: {len(cams)} / {len(images)}")
+
+    # COLMAP entries keyed by file basename for robust matching.
+    colmap_by_name = {os.path.basename(image.name): image for image in images.values()}
+    names = (
+        [os.path.basename(path) for path in image_paths]
+        if image_paths is not None
+        else sorted(colmap_by_name.keys())
+    )
+
+    extrinsics = []
+    intrinsics = []
+
+    for name in names:
+        if name not in colmap_by_name:
+            raise KeyError(f"Image '{name}' not found in COLMAP images.bin")
+        image = colmap_by_name[name]
+
+        # Build extrinsics (world-to-camera)
+        ext = np.eye(4, dtype=np.float32)
+        ext[:3, :3] = image.qvec2rotmat()
+        ext[:3, 3] = image.tvec
+
+        # Get camera parameters
+        cam_id = image.camera_id
+        camera = cams[cam_id]
+        # Build intrinsics from camera-model-specific parameter layout.
+        ixt = _build_ixt_from_colmap_camera(camera)
+
+        extrinsics.append(ext)
+        intrinsics.append(ixt)
+
+    if not extrinsics:
+        raise ValueError(f"No cameras were resolved from COLMAP model at '{filepath}'")
+
+    extrinsics = np.asarray(extrinsics, dtype=np.float32)
+    intrinsics = np.asarray(intrinsics, dtype=np.float32)
+    print(
+        f"Prepared COLMAP camera tensors: extrinsics {extrinsics.shape}, "
+        f"intrinsics {intrinsics.shape}"
+    )
+    return intrinsics, extrinsics
+
 def main():
     args = parse_args()
 
@@ -203,12 +291,20 @@ def main():
         extrinsics = extrinsics_all[cam_indices]
         intrinsics = intrinsics_all[cam_indices]
         print(f"Loaded native cameras from npz: {args.camera_npz_native}")
+    elif args.camera_bin:
+        intrinsics, extrinsics = load_camera_bin_colmap(
+            f"/home/amila/datasets/{dataset_name}/sparse/0/",
+            image_paths=selected_images,
+        )
+        print(f"Loaded cameras from COLMAP bin for {len(selected_images)} selected images.")
+    elif args.camera_json:
+        k_mat, w2c_mats = load_camera_json(f"{dataset_path}/transforms.json")
+        selected_names = [os.path.basename(p) for p in selected_images]
+        print(f"Selected names: {selected_names}")
+        extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
+        intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
+        print(f"Loaded cameras from json for {len(selected_images)} selected images.")
     else:
-        # k_mat, w2c_mats = load_camera_json(f"{dataset_path}/transforms.json")
-        # selected_names = [os.path.basename(p) for p in selected_images]
-        # print(f"Selected names: {selected_names}")
-        # extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
-        # intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
         extrinsics = None
         intrinsics = None
 
@@ -221,7 +317,7 @@ def main():
         export_format="gs_ply" if args.dump_ply else "gs_video",
         process_res=448,
         export_kwargs=export_args,
-        align_to_input_ext_scale=False,
+        # align_to_input_ext_scale=False,
     )
 
     # prediction.processed_images : [N, H, W, 3] uint8   array

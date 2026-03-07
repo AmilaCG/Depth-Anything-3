@@ -244,10 +244,10 @@ class DepthAnything3(nn.Module, PyTorchModelHubMixin):
                         export_kwargs["gs_video"] = {}
                     export_kwargs["gs_video"].update(
                         {
-                            "extrinsics": render_exts,
-                            "intrinsics": render_ixts,  # Original intrinsics are not affected
-                            # "extrinsics": render_exts if render_exts is not None else gs_render_exts,
-                            # "intrinsics": render_ixts if render_ixts is not None else gs_render_ixts,
+                            # Keep GS rendering in the same camera frame as predicted gaussians
+                            # unless caller explicitly overrides render poses.
+                            "extrinsics": render_exts if render_exts is not None else gs_render_exts,
+                            "intrinsics": render_ixts if render_ixts is not None else gs_render_ixts,
                             "out_image_hw": render_hw,
                         }
                     )
