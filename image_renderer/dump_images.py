@@ -154,33 +154,6 @@ def load_camera_npz_native(npz_path):
 
     return intrinsics.copy(), extrinsics.copy()
 
-
-def _build_ixt_from_colmap_camera(camera):
-    """Build a 3x3 intrinsic matrix from COLMAP camera params."""
-    params = camera.params
-    model = camera.model
-    ixt = np.eye(3, dtype=np.float32)
-
-    if model in {"SIMPLE_PINHOLE", "SIMPLE_RADIAL", "SIMPLE_RADIAL_FISHEYE", "RADIAL", "RADIAL_FISHEYE"}:
-        focal = float(params[0])
-        ixt[0, 0] = focal
-        ixt[1, 1] = focal
-        ixt[0, 2] = float(params[1])
-        ixt[1, 2] = float(params[2])
-    elif model in {"PINHOLE", "OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV", "FOV"}:
-        ixt[0, 0] = float(params[0])
-        ixt[1, 1] = float(params[1])
-        ixt[0, 2] = float(params[2])
-        ixt[1, 2] = float(params[3])
-    else:
-        raise NotImplementedError(
-            f"COLMAP camera model '{model}' is not supported in dump_images.py"
-        )
-
-    # COLMAP convention adjustment used across DA3 dataset loaders.
-    ixt[:2, 2] -= 0.5
-    return ixt
-
 def load_camera_bin_colmap(filepath, image_paths=None):
     cam_bin_path = f"{filepath}/cameras.bin"
     img_bin_path = f"{filepath}/images.bin"
@@ -213,8 +186,30 @@ def load_camera_bin_colmap(filepath, image_paths=None):
         # Get camera parameters
         cam_id = image.camera_id
         camera = cams[cam_id]
+
         # Build intrinsics from camera-model-specific parameter layout.
-        ixt = _build_ixt_from_colmap_camera(camera)
+        params = camera.params
+        model = camera.model
+        ixt = np.eye(3, dtype=np.float32)
+
+        if model in {"SIMPLE_PINHOLE", "SIMPLE_RADIAL", "SIMPLE_RADIAL_FISHEYE", "RADIAL", "RADIAL_FISHEYE"}:
+            focal = float(params[0])
+            ixt[0, 0] = focal
+            ixt[1, 1] = focal
+            ixt[0, 2] = float(params[1])
+            ixt[1, 2] = float(params[2])
+        elif model in {"PINHOLE", "OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV", "FOV"}:
+            ixt[0, 0] = float(params[0])
+            ixt[1, 1] = float(params[1])
+            ixt[0, 2] = float(params[2])
+            ixt[1, 2] = float(params[3])
+        else:
+            raise NotImplementedError(
+                f"COLMAP camera model '{model}' is not supported in dump_images.py"
+            )
+
+        # COLMAP convention adjustment used across DA3 dataset loaders.
+        ixt[:2, 2] -= 0.5
 
         extrinsics.append(ext)
         intrinsics.append(ixt)
