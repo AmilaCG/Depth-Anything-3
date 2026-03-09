@@ -6,6 +6,7 @@ import torch
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.utils.read_write_model import read_cameras_binary
 from depth_anything_3.utils.read_write_model import read_images_binary
+from depth_anything_3.utils.pose_align import align_poses_umeyama
 import json
 import numpy as np
 
@@ -209,7 +210,7 @@ def load_camera_bin_colmap(filepath, image_paths=None):
             )
 
         # COLMAP convention adjustment used across DA3 dataset loaders.
-        ixt[:2, 2] -= 0.5
+        # ixt[:2, 2] -= 0.5
 
         extrinsics.append(ext)
         intrinsics.append(ixt)
@@ -224,6 +225,20 @@ def load_camera_bin_colmap(filepath, image_paths=None):
         f"intrinsics {intrinsics.shape}"
     )
     return intrinsics, extrinsics
+
+def align_render_extrinsics_to_prediction(gt_extrinsics, pred_extrinsics, pred_scale_factor=None):
+    pred_render_extrinsics = pred_extrinsics.copy()
+    if pred_scale_factor is not None:
+        pred_render_extrinsics[:, :3, 3] /= pred_scale_factor
+
+    rot, trans, scale, render_exts = align_poses_umeyama(
+        ext_ref=pred_render_extrinsics,
+        ext_est=gt_extrinsics,
+        return_aligned=True,
+        # random_state=42,
+    )
+
+    return render_exts.astype(np.float32), rot, trans, scale
 
 def main():
     args = parse_args()
@@ -269,8 +284,8 @@ def main():
                 "Camera count in npz does not match full or selected image counts: "
                 f"{extrinsics_all.shape[0]} vs {len(images)} or {len(selected_images)}."
             )
-        extrinsics = extrinsics_all[cam_indices]
-        intrinsics = intrinsics_all[cam_indices]
+        gt_extrinsics = extrinsics_all[cam_indices]
+        gt_intrinsics = intrinsics_all[cam_indices]
         print(f"Loaded cameras from npz: {args.camera_npz}")
     elif args.camera_npz_native:
         intrinsics_all, extrinsics_all = load_camera_npz_native(args.camera_npz_native)
@@ -283,11 +298,11 @@ def main():
                 "Camera count in native npz does not match full or selected image counts: "
                 f"{extrinsics_all.shape[0]} vs {len(images)} or {len(selected_images)}."
             )
-        extrinsics = extrinsics_all[cam_indices]
-        intrinsics = intrinsics_all[cam_indices]
+        gt_extrinsics = extrinsics_all[cam_indices]
+        gt_intrinsics = intrinsics_all[cam_indices]
         print(f"Loaded native cameras from npz: {args.camera_npz_native}")
     elif args.camera_bin:
-        intrinsics, extrinsics = load_camera_bin_colmap(
+        gt_intrinsics, gt_extrinsics = load_camera_bin_colmap(
             f"/home/amila/datasets/{dataset_name}/sparse/0/",
             image_paths=selected_images,
         )
@@ -296,23 +311,41 @@ def main():
         k_mat, w2c_mats = load_camera_json(f"{dataset_path}/transforms.json")
         selected_names = [os.path.basename(p) for p in selected_images]
         print(f"Selected names: {selected_names}")
-        extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
-        intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
+        gt_extrinsics = np.stack([w2c_mats[name] for name in selected_names], axis=0)
+        gt_intrinsics = np.stack([k_mat.copy() for _ in selected_names], axis=0)
         print(f"Loaded cameras from json for {len(selected_images)} selected images.")
     else:
-        extrinsics = None
-        intrinsics = None
+        gt_extrinsics = None
+        gt_intrinsics = None
+
+    render_exts = None
+    if gt_extrinsics is not None:
+        pred_init = model.inference(
+            image=selected_images,
+            process_res=448,
+        )
+        render_exts, rot, trans, scale = align_render_extrinsics_to_prediction(
+            gt_extrinsics=gt_extrinsics,
+            pred_extrinsics=pred_init.extrinsics,
+            pred_scale_factor=pred_init.scale_factor if pred_init.is_metric else None,
+        )
+        print("pred -> gt rotation:\n", rot)
+        print("pred -> gt translation:\n", trans)
+        print("pred -> gt scale:", scale)
+        print(f"Aligned render extrinsics to predicted GS frame: {render_exts.shape}")
 
     prediction = model.inference(
         image=selected_images,
-        extrinsics=extrinsics,
-        intrinsics=intrinsics,
+        # extrinsics=extrinsics,
+        # intrinsics=intrinsics,
+        render_exts=render_exts,
+        render_ixts=gt_intrinsics,
+        # render_ixts=pred_init.intrinsics,
         infer_gs=True,
         export_dir=out_path,
         export_format="gs_ply" if args.dump_ply else "gs_video",
         process_res=448,
         export_kwargs=export_args,
-        # align_to_input_ext_scale=False,
     )
 
     # prediction.processed_images : [N, H, W, 3] uint8   array
