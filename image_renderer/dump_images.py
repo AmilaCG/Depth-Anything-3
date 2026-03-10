@@ -12,6 +12,74 @@ import numpy as np
 
 OPENGL_TO_OPENCV = np.diag([1.0, -1.0, -1.0, 1.0]).astype(np.float32)
 
+def as_homogeneous(extrinsics):
+    extrinsics = np.asarray(extrinsics, dtype=np.float32)
+    if extrinsics.shape[-2:] == (4, 4):
+        return extrinsics.copy()
+    if extrinsics.shape[-2:] != (3, 4):
+        raise ValueError(
+            f"Invalid extrinsics shape {extrinsics.shape}; expected [..., 3, 4] or [..., 4, 4]."
+        )
+
+    bottom_row = np.zeros(extrinsics.shape[:-2] + (1, 4), dtype=extrinsics.dtype)
+    bottom_row[..., 0, 3] = 1.0
+    return np.concatenate([extrinsics, bottom_row], axis=-2)
+
+def affine_inverse_np(extrinsics):
+    extrinsics = as_homogeneous(extrinsics)
+    rot = extrinsics[..., :3, :3]
+    trans = extrinsics[..., :3, 3:]
+    rot_t = np.swapaxes(rot, -1, -2)
+    inv = np.zeros_like(extrinsics)
+    inv[..., :3, :3] = rot_t
+    inv[..., :3, 3:] = -(rot_t @ trans)
+    inv[..., 3, 3] = 1.0
+    return inv
+
+def normalize_intrinsics(intrinsics, height, width):
+    intrinsics = np.asarray(intrinsics, dtype=np.float32).copy()
+    intrinsics[..., 0, :] /= float(width)
+    intrinsics[..., 1, :] /= float(height)
+    return intrinsics
+
+def export_prediction_cameras_for_align_pose(prediction, image_paths, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+
+    export_extrinsics = as_homogeneous(prediction.extrinsics)
+    # Nested metric models rescale pose translations after GS creation. Undo that
+    # so the exported poses match the exported Gaussian scene frame.
+    if prediction.is_metric and prediction.scale_factor is not None:
+        export_extrinsics = export_extrinsics.copy()
+        export_extrinsics[:, :3, 3] /= float(prediction.scale_factor)
+
+    export_intrinsics = np.asarray(prediction.intrinsics, dtype=np.float32)
+    height, width = prediction.processed_images.shape[1:3]
+    export_intrinsics = normalize_intrinsics(export_intrinsics, height=height, width=width)
+    export_c2w = affine_inverse_np(export_extrinsics)
+
+    frames = []
+    for idx, image_path in enumerate(image_paths):
+        frames.append(
+            {
+                "file_name": os.path.basename(image_path),
+                "extrinsic_c2w": export_c2w[idx].tolist(),
+                "intrinsic_3x3": export_intrinsics[idx].tolist(),
+            }
+        )
+
+    poses_path = os.path.join(output_dir, "pred_cameras.json")
+    with open(poses_path, "w", encoding="utf-8") as f:
+        json.dump({"frames": frames}, f, indent=2)
+
+    raw_npz_path = os.path.join(output_dir, "prediction_camera_params.npz")
+    np.savez_compressed(
+        raw_npz_path,
+        extrinsics=prediction.extrinsics,
+        intrinsics=prediction.intrinsics,
+    )
+    print(f"Exported align-pose poses to: {poses_path}")
+    print(f"Exported raw predicted camera params to: {raw_npz_path}")
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run DA3 image dump/export job.")
     parser.add_argument(
@@ -347,6 +415,13 @@ def main():
         process_res=448,
         export_kwargs=export_args,
     )
+
+    if args.dump_cameras:
+        export_prediction_cameras_for_align_pose(
+            prediction=prediction,
+            image_paths=selected_images,
+            output_dir=os.path.join(out_path, "cameras"),
+        )
 
     # prediction.processed_images : [N, H, W, 3] uint8   array
     print(f"Processed images: {prediction.processed_images.shape}")
